@@ -7,6 +7,9 @@ services:
     image: ghcr.io/ssm9/jobscraperultimate:latest
     container_name: jobscraper
     restart: unless-stopped
+    # Re-check the registry on every start, so restarting the app is enough to
+    # pick up a new :latest. Without this Docker keeps using the cached copy.
+    pull_policy: always
     ports:
       # host:container — change 8188 if it clashes with another app.
       - "8188:8000"

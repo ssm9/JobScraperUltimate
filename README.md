@@ -78,10 +78,38 @@ services:
 Go to **Settings** first: set your search term, pick your sources, set your role keywords,
 then turn on **Run scrapes automatically**. Or hit **Scrape now** to fetch immediately.
 
-### Updating
+### Updating to a new image
 
-TrueNAS pulls `:latest` on app update. To pin a version, replace `latest` with a
-commit tag from [the package page](https://github.com/ssm9/JobScraperUltimate/pkgs/container/jobscraperultimate).
+`latest` is a moving tag: Docker won't re-fetch it just because the registry moved it,
+so an app restart alone may keep running the old image. The compose file sets
+`pull_policy: always`, which makes every start re-check the registry.
+
+With that in place, **Apps → Installed → jobscraper → Stop, then Start** is enough.
+Watch the app logs — you'll see it pull a new layer set if one exists.
+
+If the app was installed before `pull_policy` was added, edit the app
+(**Apps → Installed → jobscraper → Edit**), paste the current compose YAML, and save.
+Saving redeploys the app.
+
+To force a pull from the shell instead:
+
+```bash
+sudo docker pull ghcr.io/ssm9/jobscraperultimate:latest
+```
+
+then stop and start the app in the UI so it recreates the container against the
+newly pulled image.
+
+**Pinning a specific build.** Every push publishes an immutable `sha-<commit>` tag
+alongside `latest`. Pinning one makes upgrades deliberate and rollbacks trivial — change
+the tag and redeploy:
+
+```yaml
+image: ghcr.io/ssm9/jobscraperultimate:sha-c27b79c
+```
+
+Tags are listed on
+[the package page](https://github.com/ssm9/JobScraperUltimate/pkgs/container/jobscraperultimate).
 
 ---
 
