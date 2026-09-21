@@ -174,3 +174,17 @@ td.status-partial, td.status-running { color: var(--warn); }
 .company-counts { margin-top: 18px; }
 .company-counts h3 { font-size: 13px; margin: 0 0 4px; }
 .company-counts p { margin: 0 0 10px; font-size: 12px; }
+
+/* selection controls */
+.listhead {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 0 4px 10px; font-size: 13px;
+}
+.listhead label.inline { margin: 0; }
+#select-tip { font-size: 12px; }
+#select-all-hint { margin-left: auto; font-size: 13px; }
+#select-all-hint button {
+  background: none; border: 0; color: var(--accent); cursor: pointer;
+  font: inherit; font-weight: 600; text-decoration: underline; padding: 0;
+}
+.job.selected { border-color: var(--accent); background: var(--surface-2); }

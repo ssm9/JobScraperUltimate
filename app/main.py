@@ -51,6 +51,16 @@ class BulkUpdate(BaseModel):
     status: str
 
 
+class BulkFilterUpdate(BaseModel):
+    """Apply a status to every job matching a filter, however many that is."""
+
+    q: str = ""
+    status: str = ""
+    site: str = ""
+    company: str = ""
+    new_status: str
+
+
 class BlockCompany(BaseModel):
     company: str
     hide_existing: bool = True
@@ -85,17 +95,12 @@ class SettingsUpdate(BaseModel):
 # --------------------------------------------------------------------------- jobs
 
 
-@app.get("/api/jobs")
-def list_jobs(
-    q: str = "",
-    status: str = "",
-    site: str = "",
-    company: str = "",
-    sort: str = "first_seen",
-    order: str = "desc",
-    page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=500),
-):
+def _job_filters(q: str, status: str, site: str, company: str) -> tuple[str, list]:
+    """Build the WHERE clause shared by listing, export and filter-wide updates.
+
+    Keeping this in one place is what makes "select all matching" honest: the
+    rows updated are exactly the rows the list would show.
+    """
     where, params = [], []
     if q:
         where.append("(title LIKE ? OR company LIKE ? OR location LIKE ?)")
@@ -114,7 +119,21 @@ def list_jobs(
         where.append("company = ?")
         params.append(company)
 
-    clause = f"WHERE {' AND '.join(where)}" if where else ""
+    return (f"WHERE {' AND '.join(where)}" if where else ""), params
+
+
+@app.get("/api/jobs")
+def list_jobs(
+    q: str = "",
+    status: str = "",
+    site: str = "",
+    company: str = "",
+    sort: str = "first_seen",
+    order: str = "desc",
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=500),
+):
+    clause, params = _job_filters(q, status, site, company)
     sort_col = sort if sort in ("first_seen", "title", "company", "location", "site") else "first_seen"
     direction = "ASC" if order.lower() == "asc" else "DESC"
 
@@ -177,6 +196,20 @@ def bulk_update(payload: BulkUpdate):
         cur = conn.execute(
             f"UPDATE jobs SET status = ? WHERE id IN ({','.join('?' * len(payload.ids))})",
             [payload.status] + payload.ids,
+        )
+    return {"updated": cur.rowcount}
+
+
+@app.post("/api/jobs/bulk-filter")
+def bulk_update_by_filter(payload: BulkFilterUpdate):
+    """Bulk update without enumerating ids — used by "select all matching"."""
+    if payload.new_status not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"status must be one of {VALID_STATUSES}")
+
+    clause, params = _job_filters(payload.q, payload.status, payload.site, payload.company)
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE jobs SET status = ? {clause}", [payload.new_status] + params
         )
     return {"updated": cur.rowcount}
 

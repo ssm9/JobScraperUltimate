@@ -15,6 +15,7 @@ in a browser UI where you can search, triage and track what you've applied to.
 
 - **Jobs board** — search, filter by source/status, sort, paginate
 - **Triage workflow** — mark jobs as saved, applied or hidden, individually or in bulk
+- **Fast multi-select** — shift-click for ranges, select a whole page, or select every job matching the current filters
 - **Spam control** — block a company in one click, and collapse repeat postings of the same role
 - **Settings screen** — every setting from the original script, editable in the browser; no file edits, no restarts
 - **Persistent storage** — SQLite on a mounted dataset; de-duplication across all runs, not just today's CSV
@@ -27,7 +28,7 @@ in a browser UI where you can search, triage and track what you've applied to.
 
 | Screen | What it does |
 |---|---|
-| **Jobs** | The scraped listings, newest first. Stat tiles across the top, search and filters, and per-job Save / Applied / Hide actions. |
+| **Jobs** | The scraped listings, newest first. Stat tiles across the top, search and filters, and per-job Save / Applied / Hide actions. Select jobs with the checkboxes — shift-click to take a range, **Select page** for everything loaded, then **Select all N matching** to extend across every page of the current filter. |
 | **Settings** | Search terms, location, sources, result counts, look-back window, include/exclude keywords, schedule interval and SMTP settings. |
 | **Activity** | Recent scrape runs with scraped/matched/new counts and error messages, plus database cleanup tools. |
 
@@ -124,6 +125,7 @@ The UI is a thin client over a REST API, so you can script against it:
 | `GET /api/jobs/{id}` | A single job, including its description |
 | `PATCH /api/jobs/{id}` | Update `status` (`new`/`saved`/`applied`/`hidden`) or `notes` |
 | `POST /api/jobs/bulk` | `{"ids": [...], "status": "..."}` |
+| `POST /api/jobs/bulk-filter` | Apply a status to every job matching a filter — `q`, `status`, `site`, `company`, `new_status` |
 | `DELETE /api/jobs` | Delete by `status` or `older_than_days` |
 | `POST /api/jobs/collapse-duplicates` | Hide repeat postings already in the database |
 | `GET /api/companies` | Companies by posting count, with distinct-role counts |

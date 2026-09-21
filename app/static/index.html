@@ -46,6 +46,13 @@
       <a id="export" class="btn ghost" href="/api/export.csv">Export CSV</a>
     </div>
 
+    <div class="listhead">
+      <label class="inline" title="Select every job on this page">
+        <input type="checkbox" id="select-page"> Select page
+      </label>
+      <span class="muted" id="select-tip">Tip: shift-click a checkbox to select a range.</span>
+    </div>
+
     <div id="bulkbar" class="bulkbar" hidden>
       <span id="bulk-count"></span>
       <button class="btn small" data-bulk="saved">Save</button>
@@ -53,6 +60,7 @@
       <button class="btn small" data-bulk="new">Mark new</button>
       <button class="btn small danger" data-bulk="hidden">Hide</button>
       <button class="btn small ghost" id="bulk-clear">Clear</button>
+      <span id="select-all-hint"></span>
     </div>
 
     <div id="jobs-list" class="jobs"></div>

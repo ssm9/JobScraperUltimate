@@ -10,6 +10,10 @@ const state = {
   sort: "first_seen",
   order: "desc",
   selected: new Set(),
+  selectAllMatching: false,  // "all N matching", not just the loaded page
+  currentJobs: [],           // this page, in display order, for shift-ranges
+  lastIndex: null,           // anchor for shift-click
+  total: 0,
   sites: [],
 };
 
@@ -106,11 +110,13 @@ async function loadStats() {
   }
 }
 
-function jobCard(job) {
-  const checked = state.selected.has(job.id) ? "checked" : "";
+function jobCard(job, index) {
+  const isSelected = state.selectAllMatching || state.selected.has(job.id);
+  const checked = isSelected ? "checked" : "";
   const meta = [job.location, job.salary, job.job_type].filter(Boolean);
   return `
-  <div class="job ${job.status === "applied" ? "is-applied" : ""}" data-id="${job.id}">
+  <div class="job ${job.status === "applied" ? "is-applied" : ""} ${isSelected ? "selected" : ""}"
+       data-id="${job.id}" data-index="${index}">
     <input type="checkbox" class="select" ${checked} aria-label="Select job">
     <div class="job-main">
       <div class="job-title"><a href="${esc(job.job_url)}" target="_blank" rel="noopener">${esc(job.title) || "(untitled)"}</a></div>
@@ -145,31 +151,96 @@ async function loadJobs() {
   });
   try {
     const data = await api(`/api/jobs?${params}`);
+    state.currentJobs = data.jobs;
+    state.total = data.total;
     $("#jobs-list").innerHTML = data.jobs.length
-      ? data.jobs.map(jobCard).join("")
+      ? data.jobs.map((job, i) => jobCard(job, i)).join("")
       : `<div class="empty"><p>No jobs match these filters.</p>
          <p class="muted">Try “Scrape now”, or widen your role keywords in Settings.</p></div>`;
     $("#page-info").textContent = `Page ${data.page} of ${data.pages} · ${data.total} jobs`;
     $("#prev").disabled = data.page <= 1;
     $("#next").disabled = data.page >= data.pages;
     $("#export").href = `/api/export.csv?${new URLSearchParams({ q: state.q, status: state.status })}`;
+    refreshBulkBar();
   } catch (err) {
     toast(`Could not load jobs: ${err.message}`, true);
   }
   loadStats();
 }
 
-function refreshBulkBar() {
-  const bar = $("#bulkbar");
-  bar.hidden = state.selected.size === 0;
-  $("#bulk-count").textContent = `${state.selected.size} selected`;
+function selectedCount() {
+  return state.selectAllMatching ? state.total : state.selected.size;
 }
 
-async function setStatus(ids, status) {
-  await api("/api/jobs/bulk", { method: "POST", body: JSON.stringify({ ids, status }) });
+function refreshBulkBar() {
+  const count = selectedCount();
+  $("#bulkbar").hidden = count === 0;
+  $("#bulk-count").textContent = state.selectAllMatching
+    ? `All ${count} matching jobs selected`
+    : `${count} selected`;
+
+  // "Select page" reflects whether every job on this page is selected.
+  const pageIds = state.currentJobs.map((j) => j.id);
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => state.selected.has(id));
+  const box = $("#select-page");
+  box.checked = state.selectAllMatching || allOnPage;
+  box.indeterminate = !box.checked && state.selected.size > 0;
+
+  // Offer to extend the selection past this page when there is more to select.
+  const hint = $("#select-all-hint");
+  if (state.selectAllMatching) {
+    hint.innerHTML = `<button type="button" id="clear-all-matching">Select only this page instead</button>`;
+  } else if (allOnPage && state.total > pageIds.length) {
+    hint.innerHTML = `All ${pageIds.length} on this page selected.
+      <button type="button" id="select-all-matching">Select all ${state.total} matching</button>`;
+  } else {
+    hint.innerHTML = "";
+  }
+}
+
+function setSelected(id, on, cardIndex) {
+  on ? state.selected.add(id) : state.selected.delete(id);
+  const card = cardIndex === undefined
+    ? document.querySelector(`.job[data-id="${id}"]`)
+    : document.querySelector(`.job[data-index="${cardIndex}"]`);
+  if (card) {
+    card.classList.toggle("selected", on);
+    const box = card.querySelector(".select");
+    if (box) box.checked = on;
+  }
+}
+
+function clearSelection() {
   state.selected.clear();
-  refreshBulkBar();
-  loadJobs();
+  state.selectAllMatching = false;
+  state.lastIndex = null;
+}
+
+async function applyBulk(status) {
+  if (selectedCount() === 0) return;
+
+  try {
+    if (state.selectAllMatching) {
+      if (!confirm(`Apply "${status}" to all ${state.total} jobs matching the current filters?`)) return;
+      const res = await api("/api/jobs/bulk-filter", {
+        method: "POST",
+        body: JSON.stringify({
+          q: state.q, status: state.status, site: state.site,
+          company: state.company || "", new_status: status,
+        }),
+      });
+      toast(`Updated ${res.updated} job(s).`);
+    } else {
+      await api("/api/jobs/bulk", {
+        method: "POST",
+        body: JSON.stringify({ ids: [...state.selected], status }),
+      });
+    }
+    clearSelection();
+    loadJobs();
+  } catch (err) {
+    toast(err.message, true);
+  }
 }
 
 /* ============================ settings ============================= */
@@ -275,17 +346,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#search").addEventListener("input", (e) => {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => { state.q = e.target.value.trim(); state.page = 1; loadJobs(); }, 300);
+    searchTimer = setTimeout(() => { state.q = e.target.value.trim(); state.page = 1; clearSelection(); loadJobs(); }, 300);
   });
-  $("#filter-status").addEventListener("change", (e) => { state.status = e.target.value; state.page = 1; loadJobs(); });
-  $("#filter-site").addEventListener("change", (e) => { state.site = e.target.value; state.page = 1; loadJobs(); });
+  $("#filter-status").addEventListener("change", (e) => { state.status = e.target.value; state.page = 1; clearSelection(); loadJobs(); });
+  $("#filter-site").addEventListener("change", (e) => { state.site = e.target.value; state.page = 1; clearSelection(); loadJobs(); });
   $("#sort").addEventListener("change", (e) => {
     [state.sort, state.order] = e.target.value.split(":");
     state.page = 1;
+    clearSelection();
     loadJobs();
   });
-  $("#prev").addEventListener("click", () => { if (state.page > 1) { state.page--; loadJobs(); } });
-  $("#next").addEventListener("click", () => { state.page++; loadJobs(); });
+  $("#prev").addEventListener("click", () => { if (state.page > 1) { state.page--; state.lastIndex = null; loadJobs(); } });
+  $("#next").addEventListener("click", () => { state.page++; state.lastIndex = null; loadJobs(); });
+
+  // Shift-clicking a checkbox otherwise highlights all the text in between.
+  $("#jobs-list").addEventListener("mousedown", (e) => {
+    if (e.shiftKey && e.target.classList.contains("select")) e.preventDefault();
+  });
 
   // Job card actions (delegated).
   $("#jobs-list").addEventListener("click", async (e) => {
@@ -293,7 +370,22 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!card) return;
     const id = Number(card.dataset.id);
     if (e.target.classList.contains("select")) {
-      e.target.checked ? state.selected.add(id) : state.selected.delete(id);
+      const index = Number(card.dataset.index);
+      const on = e.target.checked;
+
+      if (e.shiftKey && state.lastIndex !== null && state.lastIndex !== index) {
+        // Apply this checkbox's new state across the whole range.
+        const [from, to] = [Math.min(state.lastIndex, index), Math.max(state.lastIndex, index)];
+        for (let i = from; i <= to; i++) {
+          const job = state.currentJobs[i];
+          if (job) setSelected(job.id, on, i);
+        }
+      } else {
+        setSelected(id, on, index);
+      }
+
+      state.lastIndex = index;
+      state.selectAllMatching = false;  // a manual change ends "all matching"
       refreshBulkBar();
       return;
     }
@@ -324,8 +416,33 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   $$("[data-bulk]").forEach((btn) =>
-    btn.addEventListener("click", () => setStatus([...state.selected], btn.dataset.bulk)));
-  $("#bulk-clear").addEventListener("click", () => { state.selected.clear(); refreshBulkBar(); loadJobs(); });
+    btn.addEventListener("click", () => applyBulk(btn.dataset.bulk)));
+  $("#bulk-clear").addEventListener("click", () => { clearSelection(); loadJobs(); });
+
+  // Select / deselect everything on the current page.
+  $("#select-page").addEventListener("change", (e) => {
+    const on = e.target.checked;
+    state.selectAllMatching = false;
+    state.currentJobs.forEach((job, i) => setSelected(job.id, on, i));
+    state.lastIndex = null;
+    refreshBulkBar();
+  });
+
+  // Extend to / retreat from every job matching the current filters.
+  $("#select-all-hint").addEventListener("click", (e) => {
+    if (e.target.id === "select-all-matching") {
+      state.selectAllMatching = true;
+      $$(".job").forEach((card) => {
+        card.classList.add("selected");
+        card.querySelector(".select").checked = true;
+      });
+      refreshBulkBar();
+    } else if (e.target.id === "clear-all-matching") {
+      state.selectAllMatching = false;
+      state.currentJobs.forEach((job, i) => setSelected(job.id, true, i));
+      refreshBulkBar();
+    }
+  });
 
   $("#scrape-now").addEventListener("click", async () => {
     try {
