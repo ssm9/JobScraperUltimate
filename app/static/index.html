@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JobScraperUltimate</title>
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧲</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo">🧲</span> JobScraperUltimate</div>
+  <nav class="tabs">
+    <button class="tab active" data-view="jobs">Jobs</button>
+    <button class="tab" data-view="settings">Settings</button>
+    <button class="tab" data-view="activity">Activity</button>
+  </nav>
+  <div class="topbar-actions">
+    <span id="status-pill" class="pill">…</span>
+    <button id="scrape-now" class="btn primary">Scrape now</button>
+  </div>
+</header>
+
+<main>
+  <!-- ============================ JOBS ============================ -->
+  <section id="view-jobs" class="view active">
+    <div class="stats" id="stats"></div>
+
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Search title, company, location…">
+      <select id="filter-status">
+        <option value="">Active (not hidden)</option>
+        <option value="new">New</option>
+        <option value="saved">Saved</option>
+        <option value="applied">Applied</option>
+        <option value="hidden">Hidden</option>
+      </select>
+      <select id="filter-site"><option value="">All sources</option></select>
+      <select id="sort">
+        <option value="first_seen:desc">Newest first</option>
+        <option value="first_seen:asc">Oldest first</option>
+        <option value="company:asc">Company A–Z</option>
+        <option value="title:asc">Title A–Z</option>
+      </select>
+      <div class="spacer"></div>
+      <a id="export" class="btn ghost" href="/api/export.csv">Export CSV</a>
+    </div>
+
+    <div id="bulkbar" class="bulkbar" hidden>
+      <span id="bulk-count"></span>
+      <button class="btn small" data-bulk="saved">Save</button>
+      <button class="btn small" data-bulk="applied">Mark applied</button>
+      <button class="btn small" data-bulk="new">Mark new</button>
+      <button class="btn small danger" data-bulk="hidden">Hide</button>
+      <button class="btn small ghost" id="bulk-clear">Clear</button>
+    </div>
+
+    <div id="jobs-list" class="jobs"></div>
+    <div class="pager">
+      <button class="btn ghost" id="prev">← Prev</button>
+      <span id="page-info"></span>
+      <button class="btn ghost" id="next">Next →</button>
+    </div>
+  </section>
+
+  <!-- ========================== SETTINGS =========================== -->
+  <section id="view-settings" class="view">
+    <form id="settings-form">
+      <div class="card">
+        <h2>Search</h2>
+        <div class="grid">
+          <label>Search term
+            <input name="search_term" required>
+            <small>What to search job boards for, e.g. "software engineer".</small>
+          </label>
+          <label>Location
+            <input name="location" placeholder="e.g. Austin, TX (optional)">
+            <small>Leave blank to search country-wide.</small>
+          </label>
+          <label>Country (Indeed / Glassdoor)
+            <input name="country_to_search" placeholder="USA">
+          </label>
+          <label>Job type
+            <select name="job_type">
+              <option value="">Any</option>
+              <option value="fulltime">Full-time</option>
+              <option value="parttime">Part-time</option>
+              <option value="contract">Contract</option>
+              <option value="internship">Internship</option>
+            </select>
+          </label>
+          <label>Results per source
+            <input name="results_fetch_count" type="number" min="1" max="1000">
+            <small>Keep at 300 or below to reduce the risk of IP blocking.</small>
+          </label>
+          <label>Look back (hours)
+            <input name="hours" type="number" min="1" max="720">
+            <small>Only return postings newer than this.</small>
+          </label>
+        </div>
+        <fieldset class="checks">
+          <legend>Sources</legend>
+          <div id="sites" class="chips"></div>
+        </fieldset>
+        <label class="inline"><input type="checkbox" name="is_remote"> Remote jobs only</label>
+        <label class="inline"><input type="checkbox" name="fetch_description"> Fetch full descriptions (slower)</label>
+      </div>
+
+      <div class="card">
+        <h2>Filtering</h2>
+        <div class="grid">
+          <label>Role keywords (include)
+            <textarea name="roles_of_interest" rows="4" placeholder="Backend&#10;Frontend&#10;Developer"></textarea>
+            <small>One per line. A job is kept if its title contains any of these. Leave empty to keep everything.</small>
+          </label>
+          <label>Exclude keywords
+            <textarea name="exclude_keywords" rows="4" placeholder="Senior&#10;Manager&#10;Clearance"></textarea>
+            <small>One per line. A job is dropped if its title contains any of these.</small>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Schedule</h2>
+        <label class="inline"><input type="checkbox" name="schedule_enabled"> Run scrapes automatically</label>
+        <div class="grid">
+          <label>Interval (seconds)
+            <input name="sleep_time" type="number" min="60" max="86400">
+            <small>1800 = every 30 minutes. Shorter intervals raise the risk of being rate-limited.</small>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Email notifications</h2>
+        <label class="inline"><input type="checkbox" name="email_send"> Email me when new jobs are found</label>
+        <div class="grid">
+          <label>From address<input name="from_email" type="email" autocomplete="off"></label>
+          <label>Password / app password
+            <input name="email_password" type="password" autocomplete="new-password">
+            <small>Gmail requires an app password, not your account password.</small>
+          </label>
+          <label>To address<input name="to_email" type="email" autocomplete="off"></label>
+          <label>SMTP server<input name="email_smtp" placeholder="smtp.gmail.com"></label>
+          <label>SMTP port
+            <input name="email_port" type="number" min="1" max="65535">
+            <small>587 for STARTTLS, 465 for SSL.</small>
+          </label>
+        </div>
+        <button type="button" id="test-email" class="btn ghost">Send test email</button>
+      </div>
+
+      <div class="sticky-save">
+        <span id="save-msg"></span>
+        <button type="submit" class="btn primary">Save settings</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- ========================== ACTIVITY =========================== -->
+  <section id="view-activity" class="view">
+    <div class="card">
+      <h2>Recent scrape runs</h2>
+      <div id="runs"></div>
+    </div>
+    <div class="card">
+      <h2>Maintenance</h2>
+      <p class="muted">Clean up the database to keep the job list manageable.</p>
+      <div class="row">
+        <button class="btn ghost danger" data-cleanup="hidden">Delete all hidden jobs</button>
+        <button class="btn ghost danger" data-cleanup="old">Delete jobs older than 30 days</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

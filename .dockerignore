@@ -1,0 +1,9 @@
+.git
+.github
+*.md
+!README.md
+*.csv
+__pycache__/
+*.pyc
+.venv/
+data/

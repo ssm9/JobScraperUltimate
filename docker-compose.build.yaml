@@ -1,0 +1,15 @@
+# Local development / build-from-source variant.
+#   docker compose -f docker-compose.build.yaml up --build
+services:
+  jobscraper:
+    build: .
+    container_name: jobscraper-dev
+    restart: unless-stopped
+    ports:
+      - "8188:8000"
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: America/New_York
+      JSU_LOG_LEVEL: INFO
+    user: "${UID:-1000}:${GID:-1000}"

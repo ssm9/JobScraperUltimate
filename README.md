@@ -1,248 +1,172 @@
 # JobScraperUltimate
 
-An automated job scraping tool that collects job listings from LinkedIn, Indeed, and Skillsire, filters them by role keywords, removes duplicates, and saves results to CSV files with optional email notifications.
+A self-hosted job scraper with a web UI, packaged as a **TrueNAS SCALE custom app**.
+
+It scrapes LinkedIn, Indeed, Glassdoor, ZipRecruiter, Google Jobs and Skillsire on a
+schedule, filters postings by role keywords, de-duplicates them, and presents everything
+in a browser UI where you can search, triage and track what you've applied to.
+
+> Forked from [Samirasimha/JobScraperUltimate](https://github.com/Samirasimha/JobScraperUltimate).
+> The original is a single script with settings hard-coded at the top of the file that
+> appends results to CSVs. This fork keeps the same scraping and filtering logic but adds
+> a web UI, a SQLite database, settings editable at runtime, and container packaging.
 
 ## Features
 
-- **Multi-Platform Scraping**: Scrapes jobs from LinkedIn, Indeed, and Skillsire
-- **Smart Filtering**: Filter jobs by role keywords (e.g., "Backend", "Frontend", "Developer")
-- **Deduplication**: Automatically removes duplicate job postings
-- **CSV Export**: Saves results in organized CSV files with timestamps
-- **Email Notifications**: Optional email delivery with CSV attachments
-- **Continuous Operation**: Runs on a configurable schedule to catch new postings
-- **Rate Limiting**: Built-in delays to avoid IP blocking
-
-## Prerequisites
-
-- Python 3.7 or higher
-- pip (Python package manager)
-
-## Installation
-
-### Step 1: Clone the Repository
-
-```bash
-git clone https://github.com/Samirasimha/JobScraperUltimate.git
-cd JobScraperUltimate
-```
-
-### Step 2: Install Dependencies
-
-Install all required packages using the provided requirements file:
-
-```bash
-pip install -r requirements.txt
-```
-
-This will install:
-- `python-jobspy` - Job scraping library for LinkedIn and Indeed
-- `pandas` - Data manipulation and CSV handling
-- `requests` - HTTP library for Skillsire API calls
-
-## Configuration
-
-Open [JobScraperUltimate.py](JobScraperUltimate.py) and configure the settings at the top of the file:
-
-### Basic Settings
-
-```python
-# How many hours back to search for jobs (first run only)
-hours = 1
-
-# Time in seconds to wait between scraping sessions
-# Recommended: 600-3600 (10 minutes to 1 hour)
-sleep_time = 10
-
-# Job portals to scrape (remove any you don't want)
-scrape_from = ["linkedin", "indeed", "skillsire"]
-
-# Your job search query
-search_term = "software engineer"
-
-# Maximum number of results to fetch per scraping session
-# Note: Higher numbers may increase risk of IP blocking
-results_fetch_count = 300
-
-# Country filter (for Indeed only)
-country_to_search = 'USA'
-
-# Optional prefix for CSV filenames
-file_name_prefix = ''
-```
-
-### Role Filtering
-
-Filter jobs by keywords in the job title. Jobs matching ANY of these keywords will be included:
-
-```python
-roles_of_interest = [
-    "Backend",
-    "Frontend",
-    "Developer",
-    "Engineer",
-    # Add more keywords as needed
-]
-```
-
-### Email Settings (Optional)
-
-To receive job listings via email, configure these settings:
-
-```python
-email_send = True  # Set to True to enable email notifications
-
-from_email = 'your.email@gmail.com'
-email_password = 'your_app_password'  # See note below about app passwords
-to_email = 'recipient@example.com'
-email_smtp = 'smtp.gmail.com'  # Gmail SMTP server
-```
-
-#### SMTP Server Examples:
-
-| Email Provider | SMTP Server |
-|---------------|-------------|
-| Gmail | `smtp.gmail.com` |
-| Outlook/Hotmail | `smtp-mail.outlook.com` |
-| Yahoo | `smtp.mail.yahoo.com` |
-| iCloud | `smtp.mail.me.com` |
-
-#### Gmail App Password Setup:
-
-For Gmail, you'll need to create an "App Password" instead of using your regular password:
-
-1. Go to your Google Account settings
-2. Select **Security** → **2-Step Verification** (enable if not already)
-3. Scroll to **App passwords**
-4. Generate a new app password for "Mail"
-5. Use this 16-character password in the `email_password` setting
-
-## Usage
-
-### Running the Scraper
-
-Once configured, start the scraper:
-
-```bash
-python JobScraperUltimate.py
-```
-
-Or on some systems:
-
-```bash
-python3 JobScraperUltimate.py
-```
-
-### What Happens When You Run It:
-
-1. **First Run**: Searches for jobs posted in the last `hours` hours (as configured)
-2. **Subsequent Runs**: Searches for jobs posted in the last 1 hour only
-3. **Filtering**: Applies your `roles_of_interest` keywords
-4. **Deduplication**: Removes jobs already saved in today's CSV
-5. **Saves Results**: Appends new jobs to a timestamped CSV file
-6. **Email (Optional)**: Sends the CSV via email if enabled
-7. **Sleeps**: Waits for `sleep_time` seconds before the next run
-8. **Repeats**: Continues indefinitely until stopped
-
-### Stopping the Scraper
-
-Press `Ctrl + C` in the terminal to stop the scraper gracefully.
-
-## Output Files
-
-CSV files are automatically generated with descriptive names:
-
-**Format**: `[prefix_]jobs_MonthName_Day_TimeOfDay.csv`
-
-**Examples**:
-- `jobs_January_21_morning.csv`
-- `my_jobs_December_25_afternoon.csv`
-
-**Time of Day Labels**:
-- `overnight`: 12:00 AM - 8:59 AM
-- `morning`: 9:00 AM - 11:59 AM
-- `afternoon`: 12:00 PM - 3:59 PM
-- `evening`: 4:00 PM - 8:59 PM
-- `night`: 9:00 PM - 11:59 PM
-
-Each scraping run adds a timestamp separator in the CSV, so you can see when each batch of jobs was found.
-
-## CSV File Structure
-
-| Column | Description |
-|--------|-------------|
-| `job_url` | Direct link to the job posting |
-| `title` | Job title |
-| `company` | Company name |
-| `location` | Job location |
-
-## Tips & Best Practices
-
-### Avoiding IP Blocks
-
-- Keep `results_fetch_count` at 300 or below
-- Set `sleep_time` to at least 600 seconds (10 minutes) for production use
-- Don't run multiple instances of the scraper simultaneously
-
-### Optimizing Results
-
-- Use specific keywords in `search_term` (e.g., "Python developer" instead of "developer")
-- Add specific role keywords to `roles_of_interest` to reduce false positives
-- Review the first few runs and adjust filters as needed
-
-### Email Issues
-
-- Ensure 2-factor authentication is enabled for Gmail
-- Use app-specific passwords, not your regular account password
-- Check your spam folder if emails aren't arriving
-- Some email providers may require additional security settings
-
-## Troubleshooting
-
-### "ModuleNotFoundError: No module named 'jobspy'"
-
-**Solution**: Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-### "SMTPAuthenticationError" when sending emails
-
-**Solution**:
-- Verify your email and password are correct
-- For Gmail, use an App Password instead of your regular password
-- Check that 2-factor authentication is enabled
-
-### "Too many requests" or IP blocking
-
-**Solution**:
-- Increase `sleep_time` to 1800 or 3600 seconds (30-60 minutes)
-- Reduce `results_fetch_count` to 100 or less
-- Use a VPN or wait 24 hours before trying again
-
-### No jobs found
-
-**Solution**:
-- Make your `search_term` more general (e.g., "engineer" instead of "senior backend engineer")
-- Remove or broaden your `roles_of_interest` filters
-- Increase `hours` to search further back in time
-- Check if the job portals are accessible from your location
-
-## Contributing
-
-Contributions are welcome! Feel free to:
-- Report bugs or issues
-- Suggest new features
-- Submit pull requests
-- Improve documentation
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contact
-
-For questions or feedback, contact: **samirasimha.r@gmail.com**
+- **Jobs board** — search, filter by source/status, sort, paginate
+- **Triage workflow** — mark jobs as saved, applied or hidden, individually or in bulk
+- **Settings screen** — every setting from the original script, editable in the browser; no file edits, no restarts
+- **Persistent storage** — SQLite on a mounted dataset; de-duplication across all runs, not just today's CSV
+- **Scheduler** — automatic scrapes on a configurable interval, plus a "Scrape now" button
+- **Activity log** — every run recorded with counts and any errors
+- **Email notifications** — optional, with a "send test email" button
+- **CSV export** — export any filtered view
+
+## Screens
+
+| Screen | What it does |
+|---|---|
+| **Jobs** | The scraped listings, newest first. Stat tiles across the top, search and filters, and per-job Save / Applied / Hide actions. |
+| **Settings** | Search terms, location, sources, result counts, look-back window, include/exclude keywords, schedule interval and SMTP settings. |
+| **Activity** | Recent scrape runs with scraped/matched/new counts and error messages, plus database cleanup tools. |
 
 ---
 
-Made with ❤️ by [Samirasimha Rajasimha](https://github.com/Samirasimha)
+## Deploying on TrueNAS SCALE
+
+### 1. Create a dataset for app data
+
+In the TrueNAS UI: **Datasets → Add Dataset**, e.g. `tank/apps/jobscraper`.
+This holds `jobscraper.db` — your jobs and settings — and is what you back up.
+
+Make sure it's owned by the `apps` user (uid/gid **568**), which is what the container
+runs as:
+
+```bash
+chown -R 568:568 /mnt/tank/apps/jobscraper
+```
+
+### 2. Install the custom app
+
+**Apps → Discover Apps → Custom App → Install via YAML**, then paste
+[`docker-compose.yaml`](docker-compose.yaml), editing two things first:
+
+- the host path in `volumes` to match the dataset you created
+- the host port (`8188`) if something else already uses it
+
+```yaml
+services:
+  jobscraper:
+    image: ghcr.io/ssm9/jobscraperultimate:latest
+    container_name: jobscraper
+    restart: unless-stopped
+    ports:
+      - "8188:8000"
+    volumes:
+      - /mnt/tank/apps/jobscraper:/data
+    environment:
+      TZ: America/New_York
+    user: "568:568"
+```
+
+### 3. Open the UI
+
+`http://<truenas-ip>:8188`
+
+Go to **Settings** first: set your search term, pick your sources, set your role keywords,
+then turn on **Run scrapes automatically**. Or hit **Scrape now** to fetch immediately.
+
+### Updating
+
+TrueNAS pulls `:latest` on app update. To pin a version, replace `latest` with a
+commit tag from [the package page](https://github.com/ssm9/JobScraperUltimate/pkgs/container/jobscraperultimate).
+
+---
+
+## Configuration
+
+Everything is configured in the **Settings** screen and stored in the database — the
+container needs no environment configuration beyond the following:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `JSU_DATA_DIR` | `/data` | Where the SQLite database lives |
+| `JSU_DB_PATH` | `$JSU_DATA_DIR/jobscraper.db` | Full override of the database path |
+| `JSU_LOG_LEVEL` | `INFO` | `DEBUG` for verbose scraping logs |
+| `TZ` | unset | Container timezone |
+
+### Settings reference
+
+| Setting | Notes |
+|---|---|
+| Search term | Passed to every job board, e.g. `"python developer"` |
+| Location / Country | Location is optional; country applies to Indeed and Glassdoor |
+| Sources | `linkedin`, `indeed`, `zip_recruiter`, `glassdoor`, `google`, `bayt`, `naukri`, `skillsire` |
+| Results per source | Keep at 300 or below — higher values raise the risk of IP blocking |
+| Look back (hours) | Only return postings newer than this |
+| Role keywords | A job is kept if its title contains **any** of these. Empty keeps everything |
+| Exclude keywords | A job is dropped if its title contains **any** of these |
+| Interval | Seconds between automatic scrapes. 1800 (30 min) is a sane default |
+| Email | Gmail needs an [app password](https://support.google.com/accounts/answer/185833), not your account password. Port 587 = STARTTLS, 465 = SSL |
+
+---
+
+## API
+
+The UI is a thin client over a REST API, so you can script against it:
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/jobs` | List jobs — `q`, `status`, `site`, `company`, `sort`, `order`, `page`, `per_page` |
+| `GET /api/jobs/{id}` | A single job, including its description |
+| `PATCH /api/jobs/{id}` | Update `status` (`new`/`saved`/`applied`/`hidden`) or `notes` |
+| `POST /api/jobs/bulk` | `{"ids": [...], "status": "..."}` |
+| `DELETE /api/jobs` | Delete by `status` or `older_than_days` |
+| `GET /api/export.csv` | CSV export, honours `status` and `q` |
+| `GET` / `PUT /api/settings` | Read / update settings |
+| `POST /api/settings/test-email` | Verify SMTP configuration |
+| `POST /api/scrape/run` | Trigger a scrape immediately |
+| `GET /api/runs` | Scrape-run history |
+| `GET /api/stats` | Counts, schedule state, last run |
+| `GET /health` | Health check (used by the container healthcheck) |
+
+Interactive API docs are at `/docs`.
+
+---
+
+## Running locally
+
+```bash
+pip install -r requirements.txt
+JSU_DATA_DIR=./data uvicorn app.main:app --reload --port 8188
+```
+
+Or with Docker:
+
+```bash
+docker compose -f docker-compose.build.yaml up --build
+```
+
+The original CLI script is still present as
+[`JobScraperUltimate.py`](JobScraperUltimate.py) if you prefer the CSV workflow.
+
+---
+
+## Troubleshooting
+
+**No jobs appear after a scrape.** Check **Activity** — if `scraped` is high but `matched`
+is 0, your role keywords are too narrow. Clear them to keep everything.
+
+**Activity shows errors mentioning LinkedIn or Indeed.** The boards rate-limit aggressively.
+Increase the interval, lower results per source, and wait a while. Scrapes are
+best-effort: a failure on one source doesn't stop the others.
+
+**Permission denied on startup.** The dataset isn't owned by uid 568. Either
+`chown -R 568:568` the dataset, or change `user:` in the compose file to match.
+
+**The app is unreachable.** Confirm the host port isn't taken by another app, and check
+the container logs in **Apps → jobscraper → Logs**.
+
+## License
+
+MIT, as in the original. See [LICENSE](LICENSE).

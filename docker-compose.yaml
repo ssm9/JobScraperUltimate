@@ -1,0 +1,28 @@
+# JobScraperUltimate — TrueNAS SCALE custom app
+#
+# In the TrueNAS UI: Apps → Discover Apps → Custom App → "Install via YAML",
+# then paste this file. Edit the host path under `volumes` first.
+services:
+  jobscraper:
+    image: ghcr.io/ssm9/jobscraperultimate:latest
+    container_name: jobscraper
+    restart: unless-stopped
+    ports:
+      # host:container — change 8188 if it clashes with another app.
+      - "8188:8000"
+    volumes:
+      # Point this at a dataset you created, e.g. /mnt/tank/apps/jobscraper.
+      # It holds the SQLite database with your jobs and settings.
+      - /mnt/tank/apps/jobscraper:/data
+    environment:
+      TZ: America/New_York
+      JSU_DATA_DIR: /data
+      JSU_LOG_LEVEL: INFO
+    # Must match the owner of the host dataset above (568:568 = TrueNAS "apps").
+    user: "568:568"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
