@@ -98,11 +98,41 @@ def get_conn():
         conn.close()
 
 
+def preflight() -> None:
+    """Fail with an actionable message if the data volume isn't writable.
+
+    Raw sqlite3 just says "unable to open database file", which doesn't say
+    which path, which uid, or what to do about it.
+    """
+    directory = os.path.dirname(DB_PATH) or "."
+    uid, gid = os.getuid(), os.getgid()
+
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Cannot create data directory {directory!r} (running as uid:gid {uid}:{gid}): {exc}. "
+            f"Create the dataset on the host and give it to {uid}:{gid}, "
+            f"e.g. `chown -R {uid}:{gid} /mnt/<pool>/apps/jobscraper`."
+        ) from exc
+
+    if not os.access(directory, os.W_OK | os.X_OK):
+        info = os.stat(directory)
+        raise RuntimeError(
+            f"Data directory {directory!r} is not writable. The container runs as "
+            f"uid:gid {uid}:{gid}, but the directory is owned by {info.st_uid}:{info.st_gid} "
+            f"with mode {oct(info.st_mode & 0o777)}. Fix it on the TrueNAS host with "
+            f"`chown -R {uid}:{gid} /mnt/<pool>/apps/jobscraper`, or set `user: \"{info.st_uid}:{info.st_gid}\"` "
+            f"in the app's compose YAML to match the directory."
+        )
+
+
 def init_db() -> None:
     global _initialised
     with _init_lock:
         if _initialised:
             return
+        preflight()
         with get_conn() as conn:
             conn.executescript(SCHEMA)
         _initialised = True

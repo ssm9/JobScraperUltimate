@@ -161,8 +161,25 @@ is 0, your role keywords are too narrow. Clear them to keep everything.
 Increase the interval, lower results per source, and wait a while. Scrapes are
 best-effort: a failure on one source doesn't stop the others.
 
-**Permission denied on startup.** The dataset isn't owned by uid 568. Either
-`chown -R 568:568` the dataset, or change `user:` in the compose file to match.
+**`sqlite3.OperationalError: unable to open database file` / "Data directory is not
+writable" on startup.** The mounted dataset isn't writable by uid 568. The usual cause is
+that the host path in `volumes` didn't exist when the app was installed — Docker then
+created it automatically as `root:root`, which the container can't write to. Check it:
+
+```bash
+ls -ld /mnt/tank/apps/jobscraper
+```
+
+If it shows `root root`, fix it and restart the app:
+
+```bash
+chown -R 568:568 /mnt/tank/apps/jobscraper
+chmod 770 /mnt/tank/apps/jobscraper
+```
+
+If you'd rather keep the existing ownership, set `user:` in the compose YAML to match the
+uid:gid the directory already has. From v2.0.1 the app reports the exact uid, owner and
+mode on startup rather than raising a bare sqlite error.
 
 **The app is unreachable.** Confirm the host port isn't taken by another app, and check
 the container logs in **Apps → jobscraper → Logs**.
