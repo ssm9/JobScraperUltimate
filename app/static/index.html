@@ -117,7 +117,17 @@
             <textarea name="exclude_keywords" rows="4" placeholder="Senior&#10;Manager&#10;Clearance"></textarea>
             <small>One per line. A job is dropped if its title contains any of these.</small>
           </label>
+          <label>Blocked companies
+            <textarea name="exclude_companies" rows="4" placeholder="Staffing Agency LLC&#10;Recruiters Inc"></textarea>
+            <small>One per line. Matching ignores Inc/LLC/Ltd and punctuation. Use the
+            Block button on a job to add one without typing it.</small>
+          </label>
         </div>
+        <label class="inline"><input type="checkbox" name="collapse_duplicates">
+          Collapse repeat postings of the same role</label>
+        <small>Keeps one entry per company + job title, even when a company reposts
+        the same opening under a new link.</small>
+        <div id="company-counts" class="company-counts"></div>
       </div>
 
       <div class="card">
@@ -167,6 +177,7 @@
       <h2>Maintenance</h2>
       <p class="muted">Clean up the database to keep the job list manageable.</p>
       <div class="row">
+        <button class="btn ghost" id="collapse-dupes">Collapse existing duplicates</button>
         <button class="btn ghost danger" data-cleanup="hidden">Delete all hidden jobs</button>
         <button class="btn ghost danger" data-cleanup="old">Delete jobs older than 30 days</button>
       </div>

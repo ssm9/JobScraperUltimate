@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from .db import DEFAULT_SETTINGS, get_conn, get_settings, init_db, save_settings
 from .mailer import send_test_email
-from .scraper import JOBSPY_SITES
+from .scraper import JOBSPY_SITES, company_is_excluded
 from .worker import worker
 
 logging.basicConfig(
@@ -51,6 +51,11 @@ class BulkUpdate(BaseModel):
     status: str
 
 
+class BlockCompany(BaseModel):
+    company: str
+    hide_existing: bool = True
+
+
 class SettingsUpdate(BaseModel):
     model_config = {"extra": "ignore"}
 
@@ -65,6 +70,8 @@ class SettingsUpdate(BaseModel):
     fetch_description: bool | None = None
     roles_of_interest: list[str] | None = None
     exclude_keywords: list[str] | None = None
+    exclude_companies: list[str] | None = None
+    collapse_duplicates: bool | None = None
     schedule_enabled: bool | None = None
     sleep_time: int | None = Field(default=None, ge=60, le=86400)
     email_send: bool | None = None
@@ -222,6 +229,83 @@ def export_csv(status: str = "", q: str = ""):
     )
 
 
+@app.get("/api/companies")
+def list_companies(limit: int = Query(50, ge=1, le=500)):
+    """Companies by posting count — the top of this list is usually the spam."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT company,
+                      COUNT(*) AS total,
+                      COUNT(DISTINCT fingerprint) AS distinct_roles,
+                      SUM(CASE WHEN status = 'hidden' THEN 1 ELSE 0 END) AS hidden
+               FROM jobs WHERE company != ''
+               GROUP BY company ORDER BY total DESC, company ASC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+
+    blocked = get_settings().get("exclude_companies", [])
+    return {
+        "companies": [
+            dict(row, blocked=company_is_excluded(row["company"], blocked)) for row in rows
+        ]
+    }
+
+
+@app.post("/api/companies/block")
+def block_company(payload: BlockCompany):
+    """Add a company to the blocklist and optionally hide what it already posted."""
+    name = payload.company.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="company is required")
+
+    settings = get_settings()
+    blocked = list(settings.get("exclude_companies", []))
+    if not company_is_excluded(name, blocked):
+        blocked.append(name)
+        save_settings({"exclude_companies": blocked})
+
+    hidden = 0
+    if payload.hide_existing:
+        with get_conn() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET status = 'hidden' WHERE company = ? AND status != 'hidden'",
+                (name,),
+            )
+            hidden = cur.rowcount
+
+    return {"ok": True, "company": name, "hidden": hidden, "exclude_companies": blocked}
+
+
+@app.post("/api/companies/unblock")
+def unblock_company(payload: BlockCompany):
+    """Remove a company from the blocklist. Already-hidden jobs stay hidden."""
+    name = payload.company.strip()
+    blocked = get_settings().get("exclude_companies", [])
+    remaining = [c for c in blocked if not company_is_excluded(name, [c])]
+    save_settings({"exclude_companies": remaining})
+    return {"ok": True, "exclude_companies": remaining}
+
+
+@app.post("/api/jobs/collapse-duplicates")
+def collapse_duplicates():
+    """Hide repeat postings of a role already in the database.
+
+    Keeps the earliest posting of each (company, role) pair and hides the rest.
+    Applies to what was scraped before collapsing was switched on.
+    """
+    with get_conn() as conn:
+        cur = conn.execute(
+            """UPDATE jobs SET status = 'hidden'
+               WHERE status NOT IN ('hidden', 'applied', 'saved')
+                 AND fingerprint IS NOT NULL
+                 AND id NOT IN (
+                     SELECT MIN(id) FROM jobs WHERE fingerprint IS NOT NULL
+                     GROUP BY fingerprint
+                 )"""
+        )
+    return {"ok": True, "hidden": cur.rowcount}
+
+
 # --------------------------------------------------------------------------- settings
 
 
@@ -238,7 +322,7 @@ def write_settings(payload: SettingsUpdate):
     # The UI shows a masked placeholder; don't overwrite the stored password with it.
     if updates.get("email_password") == "********":
         updates.pop("email_password")
-    for key in ("roles_of_interest", "exclude_keywords", "scrape_from"):
+    for key in ("roles_of_interest", "exclude_keywords", "exclude_companies", "scrape_from"):
         if key in updates:
             updates[key] = [item.strip() for item in updates[key] if item and item.strip()]
     if not updates:

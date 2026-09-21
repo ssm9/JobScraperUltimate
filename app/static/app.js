@@ -131,6 +131,8 @@ function jobCard(job) {
       ${job.status !== "hidden"
         ? `<button class="btn small ghost danger" data-act="hidden">Hide</button>`
         : `<button class="btn small ghost" data-act="new">Unhide</button>`}
+      ${job.company ? `<button class="btn small ghost danger" data-block="${esc(job.company)}"
+        title="Hide every job from ${esc(job.company)} and stop scraping it">Block</button>` : ""}
     </div>
   </div>`;
 }
@@ -172,7 +174,7 @@ async function setStatus(ids, status) {
 
 /* ============================ settings ============================= */
 
-const LIST_FIELDS = ["roles_of_interest", "exclude_keywords"];
+const LIST_FIELDS = ["roles_of_interest", "exclude_keywords", "exclude_companies"];
 
 async function loadSettings() {
   try {
@@ -190,8 +192,30 @@ async function loadSettings() {
       else if (LIST_FIELDS.includes(key)) field.value = (value || []).join("\n");
       else field.value = value ?? "";
     }
+    loadCompanies();
   } catch (err) {
     toast(`Could not load settings: ${err.message}`, true);
+  }
+}
+
+async function loadCompanies() {
+  try {
+    const { companies } = await api("/api/companies?limit=12");
+    const noisy = companies.filter((c) => c.total > 1);
+    if (!noisy.length) { $("#company-counts").innerHTML = ""; return; }
+    $("#company-counts").innerHTML = `
+      <h3>Most frequent companies</h3>
+      <p class="muted">Postings vs. distinct roles — a big gap means the same job reposted.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Company</th><th>Postings</th><th>Distinct roles</th><th></th></tr></thead>
+        <tbody>${noisy.map((c) => `<tr>
+          <td>${esc(c.company)}</td><td>${c.total}</td><td>${c.distinct_roles}</td>
+          <td>${c.blocked
+            ? `<span class="badge">blocked</span>`
+            : `<button class="btn small ghost danger" data-block-row="${esc(c.company)}">Block</button>`}</td>
+        </tr>`).join("")}</tbody></table></div>`;
+  } catch (err) {
+    $("#company-counts").innerHTML = "";
   }
 }
 
@@ -273,6 +297,22 @@ document.addEventListener("DOMContentLoaded", () => {
       refreshBulkBar();
       return;
     }
+    const company = e.target.dataset.block;
+    if (company) {
+      if (!confirm(`Block "${company}"?\n\nIts existing jobs will be hidden and future scrapes will skip it. You can undo this in Settings.`)) return;
+      try {
+        const res = await api("/api/companies/block", {
+          method: "POST",
+          body: JSON.stringify({ company, hide_existing: true }),
+        });
+        toast(`Blocked ${company} — ${res.hidden} job(s) hidden.`);
+        loadJobs();
+      } catch (err) {
+        toast(err.message, true);
+      }
+      return;
+    }
+
     const action = e.target.dataset.act;
     if (!action) return;
     try {
@@ -293,6 +333,31 @@ document.addEventListener("DOMContentLoaded", () => {
       toast("Scrape started — results appear as they land.");
       loadStats();
       setTimeout(loadJobs, 5000);
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
+  $("#company-counts").addEventListener("click", async (e) => {
+    const company = e.target.dataset.blockRow;
+    if (!company) return;
+    try {
+      const res = await api("/api/companies/block", {
+        method: "POST",
+        body: JSON.stringify({ company, hide_existing: true }),
+      });
+      toast(`Blocked ${company} — ${res.hidden} job(s) hidden.`);
+      loadSettings();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
+  $("#collapse-dupes").addEventListener("click", async () => {
+    if (!confirm("Hide repeat postings of roles already in the list?\n\nThe earliest posting of each role is kept. Saved and applied jobs are never touched.")) return;
+    try {
+      const res = await api("/api/jobs/collapse-duplicates", { method: "POST" });
+      toast(`Hid ${res.hidden} duplicate posting(s).`);
     } catch (err) {
       toast(err.message, true);
     }

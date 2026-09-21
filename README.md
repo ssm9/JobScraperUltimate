@@ -15,6 +15,7 @@ in a browser UI where you can search, triage and track what you've applied to.
 
 - **Jobs board** — search, filter by source/status, sort, paginate
 - **Triage workflow** — mark jobs as saved, applied or hidden, individually or in bulk
+- **Spam control** — block a company in one click, and collapse repeat postings of the same role
 - **Settings screen** — every setting from the original script, editable in the browser; no file edits, no restarts
 - **Persistent storage** — SQLite on a mounted dataset; de-duplication across all runs, not just today's CSV
 - **Scheduler** — automatic scrapes on a configurable interval, plus a "Scrape now" button
@@ -106,6 +107,8 @@ container needs no environment configuration beyond the following:
 | Look back (hours) | Only return postings newer than this |
 | Role keywords | A job is kept if its title contains **any** of these. Empty keeps everything |
 | Exclude keywords | A job is dropped if its title contains **any** of these |
+| Blocked companies | Jobs from these companies are never stored. Matching ignores Inc/LLC/Ltd and punctuation, so `acme` blocks `Acme, Inc.` |
+| Collapse repeat postings | Keeps one entry per company + role, even when reposted under a new URL |
 | Interval | Seconds between automatic scrapes. 1800 (30 min) is a sane default |
 | Email | Gmail needs an [app password](https://support.google.com/accounts/answer/185833), not your account password. Port 587 = STARTTLS, 465 = SSL |
 
@@ -122,6 +125,10 @@ The UI is a thin client over a REST API, so you can script against it:
 | `PATCH /api/jobs/{id}` | Update `status` (`new`/`saved`/`applied`/`hidden`) or `notes` |
 | `POST /api/jobs/bulk` | `{"ids": [...], "status": "..."}` |
 | `DELETE /api/jobs` | Delete by `status` or `older_than_days` |
+| `POST /api/jobs/collapse-duplicates` | Hide repeat postings already in the database |
+| `GET /api/companies` | Companies by posting count, with distinct-role counts |
+| `POST /api/companies/block` | `{"company": "...", "hide_existing": true}` |
+| `POST /api/companies/unblock` | Remove a company from the blocklist |
 | `GET /api/export.csv` | CSV export, honours `status` and `q` |
 | `GET` / `PUT /api/settings` | Read / update settings |
 | `POST /api/settings/test-email` | Verify SMTP configuration |
@@ -151,6 +158,28 @@ The original CLI script is still present as
 [`JobScraperUltimate.py`](JobScraperUltimate.py) if you prefer the CSV workflow.
 
 ---
+
+## Too many postings from one company
+
+Job boards are full of agencies posting the same opening a dozen times. Two mechanisms
+handle this, both on by default:
+
+**Collapsing repeat postings.** Jobs are identified by a fingerprint of company + role
+rather than by URL alone, so `Backend Engineer`, `Backend Engineer (Remote)` and
+`Backend Engineer - Req #12345` from the same company count as one opening. Legal suffixes
+and punctuation are ignored when comparing companies, so `Acme` and `Acme, Inc.` are the
+same employer. Different companies posting the same title stay separate.
+
+Turn it off in **Settings → Filtering** if you'd rather see every posting.
+
+**Blocking a company.** Hit **Block** on any job card to hide everything that company has
+posted and skip it on future scrapes. **Settings → Filtering** lists your most frequent
+companies with their posting-vs-distinct-role counts — a big gap between those two numbers
+is the signature of a spammer — and lets you block or edit the list directly.
+
+For jobs already scraped before you enabled any of this, **Activity → Collapse existing
+duplicates** applies the fingerprint rule retroactively. It keeps the earliest posting of
+each role and never touches anything you've saved or applied to.
 
 ## Troubleshooting
 

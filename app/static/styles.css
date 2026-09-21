@@ -169,3 +169,8 @@ td.status-partial, td.status-running { color: var(--warn); }
   .job { flex-wrap: wrap; }
   .job-actions { width: 100%; justify-content: flex-start; }
 }
+
+/* company breakdown on the settings screen */
+.company-counts { margin-top: 18px; }
+.company-counts h3 { font-size: 13px; margin: 0 0 4px; }
+.company-counts p { margin: 0 0 10px; font-size: 12px; }

@@ -8,6 +8,7 @@ in SQLite rather than appended to a CSV.
 import json
 import logging
 import math
+import re
 import sqlite3
 
 import requests
@@ -21,6 +22,71 @@ SKILLSIRE_BATCH = 20
 
 # Sites handled by the jobspy library (everything except Skillsire).
 JOBSPY_SITES = ["linkedin", "indeed", "zip_recruiter", "glassdoor", "google", "bayt", "naukri"]
+
+
+# Legal suffixes that make the same employer look like several companies.
+_COMPANY_SUFFIXES = re.compile(
+    r"\b(inc|llc|l\.l\.c|ltd|limited|corp|corporation|co|company|gmbh|plc|sa|nv|ag|pvt|pte)\b",
+    re.I,
+)
+# Trailing noise agencies append to otherwise identical titles.
+_TITLE_NOISE = re.compile(
+    r"\s*[\(\[][^)\]]*[\)\]]\s*$|\s*[-–—|,]\s*(remote|hybrid|onsite|on-site|urgent|new|w2|c2c|full[- ]?time|part[- ]?time|contract)\b.*$",
+    re.I,
+)
+# Requisition ids: either a #-number, or a req/job/posting id keyword plus a number.
+_REQ_ID = re.compile(
+    r"#\s*\d+\w*"
+    r"|\b(?:req|requisition|job|posting)?\s*(?:id|no)\b\.?\s*[-:#]?\s*\d+\w*"
+    r"|\b(?:req|requisition)\b\.?\s*[-:#]?\s*\d+\w*",
+    re.I,
+)
+# Separators left dangling once noise is stripped off the end.
+_TRAILING_SEP = re.compile(r"[\s\-–—|,:/]+$")
+
+
+def normalize_company(company: str) -> str:
+    """Fold a company name down to a comparable key."""
+    text = (company or "").lower()
+    text = _COMPANY_SUFFIXES.sub(" ", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def normalize_title(title: str) -> str:
+    """Fold a job title down to a comparable key.
+
+    Strips requisition ids and trailing decorations, so "Backend Engineer",
+    "Backend Engineer (Remote)" and "Backend Engineer - Req #12345" all match.
+    """
+    text = (title or "").lower()
+    text = _REQ_ID.sub(" ", text)
+    previous = None
+    while previous != text:  # peel repeated trailing decorations
+        previous = text
+        text = _TITLE_NOISE.sub("", text).strip()
+        text = _TRAILING_SEP.sub("", text).strip()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def fingerprint(company: str, title: str) -> str:
+    """Identity of a *role*, as opposed to a posting. Same role reposted under
+    a new URL produces the same fingerprint."""
+    return f"{normalize_company(company)}|{normalize_title(title)}"
+
+
+def company_is_excluded(company: str, excluded: list) -> bool:
+    """True if the company matches any blocklist entry, allowing for suffix
+    and punctuation differences in either direction."""
+    key = normalize_company(company)
+    if not key:
+        return False
+    for entry in excluded:
+        blocked = normalize_company(entry)
+        if blocked and (blocked in key or key in blocked):
+            return True
+    return False
 
 
 def _clean(value):
@@ -169,39 +235,70 @@ def scrape_with_jobspy(settings: dict, sites: list) -> list:
 
 
 def filter_jobs(jobs: list, settings: dict) -> list:
-    """Keep titles matching any role keyword, drop any matching an exclusion."""
+    """Apply role keywords, title exclusions and the company blocklist.
+
+    Also collapses repeats of the same role within this batch, so a company
+    posting one opening five times contributes one row.
+    """
     include = [r.lower().strip() for r in settings.get("roles_of_interest", []) if r.strip()]
     exclude = [x.lower().strip() for x in settings.get("exclude_keywords", []) if x.strip()]
+    blocked = [c for c in settings.get("exclude_companies", []) if c and c.strip()]
+    collapse = bool(settings.get("collapse_duplicates", True))
 
-    kept = []
+    kept, seen = [], set()
     for job in jobs:
         title = (job.get("title") or "").lower()
         if include and not any(role in title for role in include):
             continue
         if exclude and any(word in title for word in exclude):
             continue
+        if blocked and company_is_excluded(job.get("company", ""), blocked):
+            continue
+
+        job["fingerprint"] = fingerprint(job.get("company", ""), job.get("title", ""))
+        if collapse:
+            if job["fingerprint"] in seen:
+                continue
+            seen.add(job["fingerprint"])
         kept.append(job)
     return kept
 
 
-def store_jobs(jobs: list) -> int:
-    """Insert jobs, ignoring URLs already stored. Returns the new-row count."""
+def store_jobs(jobs: list, collapse: bool = True) -> int:
+    """Insert jobs, ignoring URLs already stored. Returns the new-row count.
+
+    With `collapse`, a job whose role fingerprint is already in the database is
+    skipped too — that catches the same opening reposted under a fresh URL.
+    """
     if not jobs:
         return 0
     seen = utcnow()
     inserted = 0
     with get_conn() as conn:
+        known = set()
+        if collapse:
+            known = {
+                row["fingerprint"]
+                for row in conn.execute(
+                    "SELECT DISTINCT fingerprint FROM jobs WHERE fingerprint IS NOT NULL"
+                )
+            }
+
         for job in jobs:
+            mark = job.get("fingerprint") or fingerprint(job.get("company", ""), job.get("title", ""))
+            if collapse and mark in known:
+                continue
+            known.add(mark)
             try:
                 cur = conn.execute(
                     """INSERT OR IGNORE INTO jobs
                        (job_url, title, company, location, site, job_type, is_remote,
-                        salary, description, date_posted, first_seen, status)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,'new')""",
+                        salary, description, date_posted, first_seen, status, fingerprint)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,'new',?)""",
                     (
                         job["job_url"], job["title"], job["company"], job["location"],
                         job["site"], job["job_type"], job["is_remote"], job["salary"],
-                        job["description"], job["date_posted"], seen,
+                        job["description"], job["date_posted"], seen, mark,
                     ),
                 )
                 inserted += cur.rowcount
@@ -237,7 +334,7 @@ def run_scrape(settings: dict) -> dict:
             errors.append(f"skillsire: {exc}")
 
     matched = filter_jobs(scraped, settings)
-    new_count = store_jobs(matched)
+    new_count = store_jobs(matched, collapse=bool(settings.get("collapse_duplicates", True)))
 
     return {
         "scraped": len(scraped),
